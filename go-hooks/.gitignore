@@ -1,0 +1,3 @@
+# Build artifacts in repo root (pre-built binaries go in bin/)
+*.exe
+!bin/*.exe
