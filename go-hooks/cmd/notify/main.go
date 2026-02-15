@@ -4,12 +4,19 @@ import (
 	"os"
 
 	"github.com/gen2brain/beeep"
+	"github.com/valentinclaes/claude-hooks/internal/config"
+	"github.com/valentinclaes/claude-hooks/internal/focus"
 )
 
 func main() {
 	defer func() {
 		recover() // Never block Claude - swallow all panics
 	}()
+
+	cfg := config.Load()
+	if cfg.SkipWhenFocused && focus.TerminalIsFocused() {
+		return
+	}
 
 	beeep.AppName = "Claude Code"
 

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/valentinclaes/claude-hooks/internal/gitsync"
 	"github.com/valentinclaes/claude-hooks/internal/hookdata"
 	"github.com/valentinclaes/claude-hooks/internal/obsidian"
 	"github.com/valentinclaes/claude-hooks/internal/session"
@@ -180,6 +181,9 @@ func runLogResponse() {
 	if vaultDir != "" {
 		date := now.Format("2006-01-02")
 		obsidian.RebuildDailyIndex(vaultDir, date)
+
+		// Git sync (if enabled via config.json)
+		gitsync.SyncIfEnabled(vaultDir)
 	}
 }
 
