@@ -8,30 +8,15 @@ import (
 	"time"
 )
 
-func TestIsEnabled(t *testing.T) {
-	tests := []struct {
-		val  string
-		want bool
-	}{
-		{"1", true},
-		{"true", true},
-		{"TRUE", true},
-		{"True", true},
-		{"0", false},
-		{"false", false},
-		{"", false},
-		{"yes", false},
-		{"  1  ", true},
-		{"  true  ", true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.val, func(t *testing.T) {
-			t.Setenv("CLAUDE_VAULT_GIT_PUSH", tt.val)
-			if got := isEnabled(); got != tt.want {
-				t.Errorf("isEnabled() with %q = %v, want %v", tt.val, got, tt.want)
-			}
-		})
-	}
+// setConfigHome points ~/.claude/hooks/config.json to a temp dir with the given JSON.
+func setConfigHome(t *testing.T, json string) {
+	t.Helper()
+	dir := t.TempDir()
+	hooksDir := filepath.Join(dir, ".claude", "hooks")
+	os.MkdirAll(hooksDir, 0755)
+	os.WriteFile(filepath.Join(hooksDir, "config.json"), []byte(json), 0644)
+	t.Setenv("USERPROFILE", dir) // os.UserHomeDir() reads this on Windows
+	t.Setenv("HOME", dir)        // os.UserHomeDir() reads this on Unix
 }
 
 func TestIsGitRepo(t *testing.T) {
@@ -50,13 +35,13 @@ func TestIsGitRepo(t *testing.T) {
 }
 
 func TestSyncIfEnabled_NotEnabled(t *testing.T) {
-	t.Setenv("CLAUDE_VAULT_GIT_PUSH", "0")
+	setConfigHome(t, `{"git_auto_push": false}`)
 	// Should return immediately without error even with invalid dir
 	SyncIfEnabled("/nonexistent/path")
 }
 
 func TestSyncIfEnabled_NotGitRepo(t *testing.T) {
-	t.Setenv("CLAUDE_VAULT_GIT_PUSH", "1")
+	setConfigHome(t, `{"git_auto_push": true}`)
 	dir := t.TempDir()
 	// No .git dir — should return immediately
 	SyncIfEnabled(dir)
@@ -94,7 +79,7 @@ func run(t *testing.T, dir, name string, args ...string) {
 }
 
 func TestSyncIfEnabled_CommitsAndPushes(t *testing.T) {
-	t.Setenv("CLAUDE_VAULT_GIT_PUSH", "1")
+	setConfigHome(t, `{"git_auto_push": true}`)
 	bare, clone := initBareAndClone(t)
 
 	// Create a new file in the clone
@@ -124,7 +109,7 @@ func TestSyncIfEnabled_CommitsAndPushes(t *testing.T) {
 }
 
 func TestSyncIfEnabled_NothingToCommit(t *testing.T) {
-	t.Setenv("CLAUDE_VAULT_GIT_PUSH", "1")
+	setConfigHome(t, `{"git_auto_push": true}`)
 	_, clone := initBareAndClone(t)
 
 	// No changes — should complete without error

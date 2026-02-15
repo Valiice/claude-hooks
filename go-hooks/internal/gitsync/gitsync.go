@@ -6,17 +6,19 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
+
+	"github.com/valentinclaes/claude-hooks/internal/config"
 )
 
 const lockTimeout = 5 * time.Minute
 const syncTimeout = 30 * time.Second
 
-// SyncIfEnabled commits and pushes vault changes if CLAUDE_VAULT_GIT_PUSH is enabled.
+// SyncIfEnabled commits and pushes vault changes if git_auto_push is enabled in config.
 // All errors are swallowed silently (matching project convention).
 func SyncIfEnabled(vaultDir string) {
-	if !isEnabled() {
+	cfg := config.Load()
+	if !cfg.GitAutoPush {
 		return
 	}
 	if !isGitRepo(vaultDir) {
@@ -50,11 +52,6 @@ func SyncIfEnabled(vaultDir string) {
 
 	// Push (best-effort)
 	_ = gitCmd(ctx, vaultDir, "push")
-}
-
-func isEnabled() bool {
-	val := strings.ToLower(strings.TrimSpace(os.Getenv("CLAUDE_VAULT_GIT_PUSH")))
-	return val == "1" || val == "true"
 }
 
 func isGitRepo(dir string) bool {
