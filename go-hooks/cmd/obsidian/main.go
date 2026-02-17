@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/valentinclaes/claude-hooks/internal/gitctx"
+	"github.com/valentinclaes/claude-hooks/internal/gitsync"
 	"github.com/valentinclaes/claude-hooks/internal/hookdata"
 	"github.com/valentinclaes/claude-hooks/internal/obsidian"
 	"github.com/valentinclaes/claude-hooks/internal/session"
@@ -245,6 +246,9 @@ func runLogResponse() {
 		obsidian.RebuildDailyIndex(vaultDir, date)
 		obsidian.RebuildWeeklyStatsIfStale(vaultDir, now)
 		obsidian.RebuildMonthlyStatsIfStale(vaultDir, now)
+
+		// Git sync (if enabled via config.json)
+		gitsync.SyncIfEnabled(vaultDir)
 	}
 }
 
