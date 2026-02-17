@@ -6,13 +6,17 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
 var (
-	durationRe  = regexp.MustCompile(`(?m)^duration:\s*(.+)$`)
-	sessionIDRe = regexp.MustCompile(`(?m)^session_id:\s*(.+)$`)
-	userCallout = regexp.MustCompile(`\[!user\]`)
+	durationRe    = regexp.MustCompile(`(?m)^duration:\s*(.+)$`)
+	sessionIDRe   = regexp.MustCompile(`(?m)^session_id:\s*(.+)$`)
+	userCallout   = regexp.MustCompile(`\[!user\]`)
+	estCostRe     = regexp.MustCompile(`(?m)^estimated_cost:\s*"?([^"\n]+)"?$`)
+	toolsBlockRe  = regexp.MustCompile(`(?m)^tools:\n((?:\s+\w+:\s*\d+\n)*)`)
+	singleToolRe  = regexp.MustCompile(`\s+\w+:\s*(\d+)`)
 )
 
 type sessionEntry struct {
@@ -21,6 +25,8 @@ type sessionEntry struct {
 	Time     string
 	Duration string
 	Prompts  int
+	Tools    int
+	EstCost  string
 }
 
 // RebuildDailyIndex scans project subdirs for today's sessions and rebuilds the daily index.
@@ -83,6 +89,23 @@ func RebuildDailyIndex(vaultDir, date string) error {
 				prompts = len(userCallout.FindAllString(contentStr, -1))
 			}
 
+			// Extract tool count from frontmatter
+			toolCount := 0
+			if m := toolsBlockRe.FindStringSubmatch(contentStr); len(m) > 1 {
+				for _, sm := range singleToolRe.FindAllStringSubmatch(m[1], -1) {
+					if len(sm) > 1 {
+						n, _ := strconv.Atoi(sm[1])
+						toolCount += n
+					}
+				}
+			}
+
+			// Extract estimated cost from frontmatter
+			estCost := ""
+			if m := estCostRe.FindStringSubmatch(contentStr); len(m) > 1 {
+				estCost = strings.TrimSpace(m[1])
+			}
+
 			rel, err := filepath.Rel(vaultDir, match)
 			if err != nil {
 				continue
@@ -96,6 +119,8 @@ func RebuildDailyIndex(vaultDir, date string) error {
 				Time:     timeStr,
 				Duration: duration,
 				Prompts:  prompts,
+				Tools:    toolCount,
+				EstCost:  estCost,
 			})
 		}
 	}
@@ -133,6 +158,12 @@ func RebuildDailyIndex(vaultDir, date string) error {
 			}
 			if s.Prompts > 0 {
 				parts = append(parts, fmt.Sprintf("%d prompts", s.Prompts))
+			}
+			if s.Tools > 0 {
+				parts = append(parts, fmt.Sprintf("%d tools", s.Tools))
+			}
+			if s.EstCost != "" {
+				parts = append(parts, "~"+s.EstCost)
 			}
 			meta := ""
 			if len(parts) > 0 {
