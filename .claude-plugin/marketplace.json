@@ -1,0 +1,14 @@
+{
+  "name": "claude-hooks-marketplace",
+  "owner": {
+    "name": "Edward Kerckhof",
+    "url": "https://github.com/EdwardKerckhof"
+  },
+  "plugins": [
+    {
+      "name": "claude-hooks",
+      "source": "./",
+      "description": "Log Claude Code sessions to Obsidian and show Windows desktop notifications"
+    }
+  ]
+}
