@@ -39,7 +39,7 @@ git_auto_push: false
 
 # Claude Hooks Configuration
 
-Plugin settings for [claude-hooks](https://github.com/EdwardKerckhof/claude-hooks).
+Plugin settings for [claude-hooks](https://github.com/Valiice/claude-hooks).
 This file is read by the plugin's Go binaries at runtime.
 
 To reconfigure, run `/setup-obsidian-hooks` again or edit this file directly.

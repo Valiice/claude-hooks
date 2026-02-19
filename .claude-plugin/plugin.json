@@ -1,7 +1,7 @@
 {
   "name": "claude-hooks",
   "description": "Log Claude Code sessions to Obsidian and show Windows desktop notifications",
-  "repository": "https://github.com/EdwardKerckhof/claude-hooks",
+  "repository": "https://github.com/Valiice/claude-hooks",
   "license": "MIT",
   "keywords": ["obsidian", "logging", "notifications", "windows"]
 }

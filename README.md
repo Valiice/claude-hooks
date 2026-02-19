@@ -16,7 +16,7 @@ A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin for Windo
 Add the marketplace and install the plugin:
 
 ```
-/plugin marketplace add git@github.com:EdwardKerckhof/claude-hooks.git
+/plugin marketplace add git@github.com:Valiice/claude-hooks.git
 /plugin install claude-hooks@claude-hooks-marketplace
 ```
 
@@ -42,7 +42,7 @@ No Go installation required — the pre-built binaries are included in the plugi
 > **Note:** The legacy installer is deprecated. Prefer the plugin installation above.
 
 ```powershell
-git clone https://github.com/EdwardKerckhof/claude-hooks.git
+git clone https://github.com/Valiice/claude-hooks.git
 cd claude-hooks
 .\install.ps1
 ```
