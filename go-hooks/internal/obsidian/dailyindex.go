@@ -53,7 +53,7 @@ func RebuildDailyIndex(vaultDir, date string) error {
 			if err != nil {
 				continue
 			}
-			contentStr := string(content)
+			contentStr := strings.ReplaceAll(string(content), "\r", "")
 			fileName := filepath.Base(match)
 
 			// Extract time from filename (e.g., 2026-02-12_0915.md -> 09:15)

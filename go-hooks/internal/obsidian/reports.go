@@ -92,6 +92,7 @@ func ScanSessions(vaultDir string, startDate, endDate time.Time) []SessionMeta {
 }
 
 func parseSessionMeta(content, project, date string) SessionMeta {
+	content = strings.ReplaceAll(content, "\r", "")
 	meta := SessionMeta{
 		Project: project,
 		Date:    date,
@@ -211,15 +212,28 @@ func isStaleToday(path string, now time.Time) bool {
 }
 
 // RebuildWeeklyStatsIfStale rebuilds the weekly stats report if stale.
+// The filename includes the date range (e.g. Weekly-2026-02-16-to-2026-02-19.md).
+// When the end date advances, the old file is removed and replaced.
 func RebuildWeeklyStatsIfStale(vaultDir string, now time.Time) error {
 	start := weekStart(now)
 	end := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
-	fileName := fmt.Sprintf("Weekly-%s-to-%s.md", start.Format("2006-01-02"), end.Format("2006-01-02"))
+	startStr := start.Format("2006-01-02")
+	endStr := end.Format("2006-01-02")
+	fileName := fmt.Sprintf("Weekly-%s-to-%s.md", startStr, endStr)
 	filePath := filepath.Join(vaultDir, fileName)
 
 	if !isStaleToday(filePath, now) {
 		return nil
+	}
+
+	// Remove old weekly files for the same week start but different end date
+	prefix := fmt.Sprintf("Weekly-%s-to-", startStr)
+	entries, _ := os.ReadDir(vaultDir)
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasPrefix(e.Name(), prefix) && e.Name() != fileName {
+			os.Remove(filepath.Join(vaultDir, e.Name()))
+		}
 	}
 
 	sessions := ScanSessions(vaultDir, start, end)

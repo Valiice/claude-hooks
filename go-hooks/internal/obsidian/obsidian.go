@@ -433,7 +433,7 @@ func FindParentSession(sessionID, claudeProjectsDir, vaultDir string) string {
 		if err != nil {
 			return nil
 		}
-		if sessionRe.Match(content) {
+		if sessionRe.MatchString(strings.ReplaceAll(string(content), "\r", "")) {
 			rel, err := filepath.Rel(vaultDir, path)
 			if err != nil {
 				return nil

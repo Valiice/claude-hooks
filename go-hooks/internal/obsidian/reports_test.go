@@ -100,6 +100,53 @@ tags:
 	}
 }
 
+func TestScanSessions_CRLF(t *testing.T) {
+	tmpDir := t.TempDir()
+	projDir := filepath.Join(tmpDir, "TestProject")
+	os.MkdirAll(projDir, 0755)
+
+	// Same content as TestScanSessions but with \r\n line endings
+	content := "---\r\ndate: 2026-02-17\r\nsession_id: abc-123\r\nproject: TestProject\r\nstart_time: 14:30\r\nduration: 25min\r\nbranch: main\r\ntools:\r\n  Read: 10\r\n  Edit: 5\r\ntokens_in: 45000\r\ntokens_out: 12000\r\nestimated_cost: \"$0.23\"\r\nfiles_touched:\r\n  - cmd/main.go\r\n  - internal/pkg.go\r\ncommits:\r\n  - a1b2c3d Add feature\r\ntags:\r\n  - claude-session\r\n---\r\n\r\n# Claude Session - TestProject\r\n\r\n---\r\n\r\n> [!user]+ #1 - You (14:30:00)\r\n> test prompt\r\n\r\n---\r\n\r\n> [!user]+ #2 - You (14:35:00)\r\n> another prompt\r\n\r\n---\r\n"
+	os.WriteFile(filepath.Join(projDir, "2026-02-17_1430.md"), []byte(content), 0644)
+
+	start := time.Date(2026, 2, 16, 0, 0, 0, 0, time.Local)
+	end := time.Date(2026, 2, 17, 0, 0, 0, 0, time.Local)
+
+	sessions := ScanSessions(tmpDir, start, end)
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+
+	s := sessions[0]
+	if s.StartTime != "14:30" {
+		t.Errorf("start_time: got %q, want %q", s.StartTime, "14:30")
+	}
+	if s.DurationMin != 25 {
+		t.Errorf("duration_min: got %d, want 25", s.DurationMin)
+	}
+	if s.Branch != "main" {
+		t.Errorf("branch: got %q, want %q", s.Branch, "main")
+	}
+	if s.Tools["Read"] != 10 || s.Tools["Edit"] != 5 {
+		t.Errorf("tools: got %v, want Read:10 Edit:5", s.Tools)
+	}
+	if s.TokensIn != 45000 {
+		t.Errorf("tokens_in: got %d, want 45000", s.TokensIn)
+	}
+	if s.CostFloat != 0.23 {
+		t.Errorf("cost: got %f, want 0.23", s.CostFloat)
+	}
+	if len(s.FilesTouched) != 2 {
+		t.Errorf("files_touched: got %d, want 2", len(s.FilesTouched))
+	}
+	if s.Commits != 1 {
+		t.Errorf("commits: got %d, want 1", s.Commits)
+	}
+	if s.Prompts != 2 {
+		t.Errorf("prompts: got %d, want 2", s.Prompts)
+	}
+}
+
 func TestScanSessions_Empty(t *testing.T) {
 	tmpDir := t.TempDir()
 	sessions := ScanSessions(tmpDir, time.Now(), time.Now())
@@ -221,6 +268,28 @@ func TestRebuildWeeklyStatsIfStale_SkipsIfFresh(t *testing.T) {
 	content, _ := os.ReadFile(filePath)
 	if string(content) != "existing content" {
 		t.Error("fresh file should not be overwritten")
+	}
+}
+
+func TestRebuildWeeklyStatsIfStale_CleansOldFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Simulate: yesterday was Feb 18, today is Feb 19 (same week starting Feb 16)
+	now := time.Date(2026, 2, 19, 10, 0, 0, 0, time.Local)
+	start := weekStart(now)
+
+	// Create an old file from yesterday's run
+	oldFileName := "Weekly-" + start.Format("2006-01-02") + "-to-2026-02-18.md"
+	oldFilePath := filepath.Join(tmpDir, oldFileName)
+	os.WriteFile(oldFilePath, []byte("old content"), 0644)
+	// Set mtime to yesterday so it's stale
+	yesterday := now.AddDate(0, 0, -1)
+	os.Chtimes(oldFilePath, yesterday, yesterday)
+
+	// Run rebuild — no sessions, so no new file, but old file should still be cleaned
+	_ = RebuildWeeklyStatsIfStale(tmpDir, now)
+
+	if _, err := os.Stat(oldFilePath); !os.IsNotExist(err) {
+		t.Error("old weekly file should have been removed")
 	}
 }
 
