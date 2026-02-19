@@ -94,8 +94,9 @@ if (Test-Path $repoSkillsDir) {
 }
 
 # 6. Build hooks config with absolute paths for this machine
-$notifyExe = Join-Path $hooksDir "claude-notify.exe"
-$obsidianExe = Join-Path $hooksDir "claude-obsidian.exe"
+# Use forward slashes so paths work in both PowerShell and bash (MSYS/Git Bash)
+$notifyExe = (Join-Path $hooksDir "claude-notify.exe") -replace '\\', '/'
+$obsidianExe = (Join-Path $hooksDir "claude-obsidian.exe") -replace '\\', '/'
 
 $hooksConfig = @{
     "Stop" = @(
