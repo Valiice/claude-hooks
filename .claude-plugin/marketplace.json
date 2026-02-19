@@ -1,0 +1,14 @@
+{
+  "name": "claude-hooks-marketplace",
+  "owner": {
+    "name": "Valentin Claes",
+    "url": "https://github.com/Valiice"
+  },
+  "plugins": [
+    {
+      "name": "claude-hooks",
+      "source": "./",
+      "description": "Log Claude Code sessions to Obsidian and show Windows desktop notifications"
+    }
+  ]
+}

@@ -90,7 +90,13 @@ func runLogPrompt() {
 		os.MkdirAll(projectDir, 0755)
 
 		timeShort := now.Format("1504")
-		fileName := fmt.Sprintf("%s_%s.md", date, timeShort)
+		titleSlug := obsidian.GenerateTitleSlug(prompt)
+		var fileName string
+		if titleSlug != "" {
+			fileName = fmt.Sprintf("%s_%s_%s.md", date, timeShort, titleSlug)
+		} else {
+			fileName = fmt.Sprintf("%s_%s.md", date, timeShort)
+		}
 		filePath = filepath.Join(projectDir, fileName)
 
 		// Handle collision
@@ -99,7 +105,11 @@ func runLogPrompt() {
 			if _, err := os.Stat(filePath); os.IsNotExist(err) {
 				break
 			}
-			fileName = fmt.Sprintf("%s_%s_%d.md", date, timeShort, counter)
+			if titleSlug != "" {
+				fileName = fmt.Sprintf("%s_%s_%s_%d.md", date, timeShort, titleSlug, counter)
+			} else {
+				fileName = fmt.Sprintf("%s_%s_%d.md", date, timeShort, counter)
+			}
 			filePath = filepath.Join(projectDir, fileName)
 			counter++
 		}
@@ -145,8 +155,19 @@ func runLogResponse() {
 		return
 	}
 
-	// Read transcript and find last assistant text + planContent
-	responseText, planText := readTranscript(input.TranscriptPath)
+	// Read transcript and find last assistant text + planContent.
+	// Retry up to 3 times with 500ms delay to handle the race where the Stop
+	// hook fires before the transcript is fully flushed to disk.
+	var responseText, planText string
+	for attempt := 0; attempt < 3; attempt++ {
+		responseText, planText = readTranscript(input.TranscriptPath)
+		if responseText != "" || planText != "" {
+			break
+		}
+		if attempt < 2 {
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
 
 	now := time.Now()
 	timeStr := now.Format("15:04:05")
@@ -175,6 +196,12 @@ func runLogResponse() {
 
 	// Update duration in frontmatter
 	updateDuration(filePath, now)
+
+	// Insert session summary block
+	topics := readUserTopics(input.TranscriptPath)
+	if len(topics) > 0 {
+		insertSummaryBlock(filePath, obsidian.FormatSummaryBlock(topics))
+	}
 
 	// Rebuild daily index
 	vaultDir := obsidian.VaultDir()
@@ -217,8 +244,8 @@ func readTranscript(path string) (responseText, planText string) {
 		lines = append(lines, scanner.Text())
 	}
 
-	// Walk backwards, up to 50 lines
-	maxLook := 50
+	// Walk backwards, up to 200 lines
+	maxLook := 200
 	if maxLook > len(lines) {
 		maxLook = len(lines)
 	}
@@ -260,6 +287,110 @@ func readTranscript(path string) (responseText, planText string) {
 		}
 	}
 	return
+}
+
+// readUserTopics scans the transcript JSONL forward and returns up to 10 first-line
+// summaries of user turns (system tags stripped, truncated at 100 chars).
+func readUserTopics(transcriptPath string) []string {
+	f, err := os.Open(transcriptPath)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	var topics []string
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	for scanner.Scan() {
+		if len(topics) >= 10 {
+			break
+		}
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var msg transcriptMessage
+		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+			continue
+		}
+		if msg.Message.Role != "user" {
+			continue
+		}
+		var text string
+		var blocks []contentBlock
+		if err := json.Unmarshal(msg.Message.Content, &blocks); err == nil {
+			for _, b := range blocks {
+				if b.Type == "text" && b.Text != "" {
+					text = b.Text
+					break
+				}
+			}
+		} else {
+			var rawStr string
+			if err := json.Unmarshal(msg.Message.Content, &rawStr); err == nil {
+				text = rawStr
+			}
+		}
+		if text == "" {
+			continue
+		}
+		text = obsidian.StripSystemTags(text)
+		if text == "" {
+			continue
+		}
+		if idx := strings.IndexByte(text, '\n'); idx >= 0 {
+			text = text[:idx]
+		}
+		text = truncateTopic(strings.TrimSpace(text), 100)
+		if text == "" {
+			continue
+		}
+		topics = append(topics, text)
+	}
+	return topics
+}
+
+func truncateTopic(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	truncated := s[:maxLen]
+	if idx := strings.LastIndexByte(truncated, ' '); idx > 0 {
+		truncated = truncated[:idx]
+	}
+	return truncated + "..."
+}
+
+// insertSummaryBlock inserts the summary block into the session file immediately
+// before the first "\n---\n" that follows the "# Claude Session - " heading.
+func insertSummaryBlock(filePath, summaryBlock string) {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return
+	}
+	contentStr := string(content)
+
+	// Idempotency guard: don't insert if block already exists
+	if strings.Contains(contentStr, "**Topics covered:**") {
+		return
+	}
+
+	headingMarker := "\n# Claude Session - "
+	headingIdx := strings.Index(contentStr, headingMarker)
+	if headingIdx < 0 {
+		return
+	}
+
+	searchFrom := headingIdx + len(headingMarker)
+	sepMarker := "\n---\n"
+	sepIdx := strings.Index(contentStr[searchFrom:], sepMarker)
+	if sepIdx < 0 {
+		return
+	}
+	insertAt := searchFrom + sepIdx
+
+	newContent := contentStr[:insertAt] + "\n" + summaryBlock + contentStr[insertAt:]
+	os.WriteFile(filePath, []byte(newContent), 0644)
 }
 
 func updateDuration(filePath string, now time.Time) {

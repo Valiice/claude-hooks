@@ -1,0 +1,44 @@
+/* Claude Session files - CaskaydiaCove Nerd Font styling */
+
+/* Apply to files inside Work/Claude/ folder */
+.workspace-leaf-content[data-path*="Work/Claude/"] .markdown-preview-view,
+.workspace-leaf-content[data-path*="Work/Claude/"] .cm-editor {
+  font-family: "CaskaydiaCove Nerd Font", "CaskaydiaCove NF", monospace;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* Style the H1 session title */
+.workspace-leaf-content[data-path*="Work/Claude/"] h1 {
+  font-family: "CaskaydiaCove Nerd Font", monospace;
+  color: var(--interactive-accent);
+}
+
+/* YAML frontmatter */
+.workspace-leaf-content[data-path*="Work/Claude/"] .frontmatter-container {
+  font-family: "CaskaydiaCove Nerd Font", monospace;
+}
+
+/* === Custom callout: [!user] - User prompts === */
+.callout[data-callout="user"] {
+  --callout-color: 99, 180, 255;
+  --callout-icon: lucide-user;
+  background-color: rgba(99, 180, 255, 0.05);
+  border-left: 3px solid rgb(99, 180, 255);
+}
+
+/* === Custom callout: [!claude] - Claude responses === */
+.callout[data-callout="claude"] {
+  --callout-color: 180, 130, 255;
+  --callout-icon: lucide-bot;
+  background-color: rgba(180, 130, 255, 0.05);
+  border-left: 3px solid rgb(180, 130, 255);
+}
+
+/* === Custom callout: [!plan] - Claude plans === */
+.callout[data-callout="plan"] {
+  --callout-color: 255, 180, 50;
+  --callout-icon: lucide-map;
+  background-color: rgba(255, 180, 50, 0.05);
+  border-left: 3px solid rgb(255, 180, 50);
+}

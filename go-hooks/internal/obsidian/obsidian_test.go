@@ -136,3 +136,40 @@ func TestStripSystemTags(t *testing.T) {
 		t.Errorf("StripSystemTags: got %q, want %q", got, want)
 	}
 }
+
+// TestGenerateTitleSlug verifies slug generation from prompt text.
+func TestGenerateTitleSlug(t *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{"Fix the authentication bug in JWT", "fix-the-authentication-bug-in-jwt"},
+		{"hi", "hi"},
+		{"", ""},
+		{"   ", ""},
+		{"Hello, World! How are you doing today and more words", "hello-world-how-are-you-doing"},
+		{"Fix: bug #1 (urgent) [NOW]", "fix-bug-1-urgent-now"},
+		{"first line\nsecond line should be ignored", "first-line"},
+	}
+	for _, tc := range cases {
+		got := GenerateTitleSlug(tc.input)
+		if got != tc.want {
+			t.Errorf("GenerateTitleSlug(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+// TestFormatSummaryBlock verifies the summary block format.
+func TestFormatSummaryBlock(t *testing.T) {
+	if got := FormatSummaryBlock(nil); got != "" {
+		t.Errorf("FormatSummaryBlock(nil) = %q, want %q", got, "")
+	}
+	if got := FormatSummaryBlock([]string{}); got != "" {
+		t.Errorf("FormatSummaryBlock([]) = %q, want %q", got, "")
+	}
+	got := FormatSummaryBlock([]string{"topic one", "topic two"})
+	want := "**Topics covered:**\n- topic one\n- topic two\n"
+	if got != want {
+		t.Errorf("FormatSummaryBlock mismatch\ngot:  %q\nwant: %q", got, want)
+	}
+}

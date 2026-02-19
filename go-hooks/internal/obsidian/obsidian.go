@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/valentinclaes/claude-hooks/internal/settings"
 )
 
 // Pre-compiled regexes for stripping system-injected XML tags.
@@ -33,11 +35,16 @@ func init() {
 }
 
 var sanitizeRe = regexp.MustCompile(`[\\/:*?"<>|]`)
+var slugNonAlnumRe = regexp.MustCompile(`[^a-zA-Z0-9 ]+`)
 
-// VaultDir returns the Obsidian vault directory from CLAUDE_VAULT env var.
+// VaultDir returns the Obsidian vault directory.
+// Priority: 1) CLAUDE_VAULT env var, 2) settings file (.claude/claude-hooks.local.md).
 func VaultDir() string {
 	if v := os.Getenv("CLAUDE_VAULT"); v != "" {
 		return v
+	}
+	if s := settings.ReadAll(); s.VaultPath != "" {
+		return s.VaultPath
 	}
 	return ""
 }
@@ -51,6 +58,40 @@ func SanitizeProject(name string) string {
 		name = "unnamed"
 	}
 	return sanitizeRe.ReplaceAllString(name, "_")
+}
+
+// GenerateTitleSlug derives a short filename-safe slug from the first line of a prompt.
+// Returns empty string if the prompt produces no meaningful words.
+func GenerateTitleSlug(prompt string) string {
+	firstLine := prompt
+	if idx := strings.IndexByte(prompt, '\n'); idx >= 0 {
+		firstLine = prompt[:idx]
+	}
+	cleaned := slugNonAlnumRe.ReplaceAllString(firstLine, " ")
+	words := strings.Fields(cleaned)
+	if len(words) == 0 {
+		return ""
+	}
+	if len(words) > 6 {
+		words = words[:6]
+	}
+	return strings.ToLower(strings.Join(words, "-"))
+}
+
+// FormatSummaryBlock returns a markdown bullet list of session topics.
+// Returns empty string if topics is empty.
+func FormatSummaryBlock(topics []string) string {
+	if len(topics) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("**Topics covered:**\n")
+	for _, t := range topics {
+		sb.WriteString("- ")
+		sb.WriteString(t)
+		sb.WriteString("\n")
+	}
+	return sb.String()
 }
 
 // StripSystemTags removes all system-injected XML tags from prompt text.
