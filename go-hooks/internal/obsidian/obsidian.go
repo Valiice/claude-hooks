@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/valentinclaes/claude-hooks/internal/settings"
 )
 
 // Pre-compiled regexes for stripping system-injected XML tags.
@@ -34,10 +36,14 @@ func init() {
 
 var sanitizeRe = regexp.MustCompile(`[\\/:*?"<>|]`)
 
-// VaultDir returns the Obsidian vault directory from CLAUDE_VAULT env var.
+// VaultDir returns the Obsidian vault directory.
+// Priority: 1) CLAUDE_VAULT env var, 2) settings file (.claude/claude-hooks.local.md).
 func VaultDir() string {
 	if v := os.Getenv("CLAUDE_VAULT"); v != "" {
 		return v
+	}
+	if s := settings.ReadAll(); s.VaultPath != "" {
+		return s.VaultPath
 	}
 	return ""
 }

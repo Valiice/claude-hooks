@@ -4,45 +4,69 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-Windows hooks for Claude Code that log every session to Obsidian and show desktop notifications. Two standalone Go binaries, pre-built and committed to the repo. An installer (`install.ps1`) copies them to `~/.claude/hooks/` and wires up `settings.json`.
+A Claude Code **plugin** for Windows that logs every session to Obsidian and shows desktop notifications. Two standalone Go binaries, pre-built and committed to the repo. Can be installed as a plugin (recommended) or via the legacy `install.ps1` installer.
 
 ## Repo contents
 
+- `.claude-plugin/plugin.json` — plugin manifest
+- `hooks/hooks.json` — plugin hook configuration (auto-discovered)
+- `bin/` — pre-built binaries (committed, no Go required to install)
+- `commands/` — slash commands (`/setup-obsidian-hooks`)
+- `skills/` — Claude Code skills (synopsis generator)
+- `assets/` — Obsidian CSS snippet for callout styling
 - `go-hooks/` — Go source code for both binaries
   - `cmd/notify/` — `claude-notify.exe` entry point (desktop notifications via `beeep`)
   - `cmd/obsidian/` — `claude-obsidian.exe` entry point (session logging, stdlib only)
   - `internal/hookdata/` — stdin JSON parsing (shared types)
   - `internal/obsidian/` — Obsidian formatting, frontmatter, daily index, tag stripping
   - `internal/session/` — session-to-file mapping via temp files
-  - `bin/` — pre-built binaries (committed, no Go required to install)
-- `hooks/` — legacy PowerShell scripts (kept as reference, not used by installer)
-- `skills/` — Claude Code skills (synopsis generator)
-- `claude-sessions.css` — Obsidian CSS snippet for callout styling
-- `install.ps1` — one-step installer
+  - `internal/settings/` — settings file parser (.claude/claude-hooks.local.md)
+  - `internal/config/` — config loader (config.json + settings overlay)
+  - `bin/` — legacy binary location (use root `bin/` instead)
+- `hooks-legacy/` — legacy PowerShell scripts (kept as reference)
+- `install.ps1` — legacy installer (deprecated, use plugin install instead)
 
 ## Architecture
 
-Two independent Go binaries with zero shared code:
+Two independent Go binaries:
 
 | Binary | Source | Purpose | Deps |
 |--------|--------|---------|------|
 | `claude-notify.exe` | `cmd/notify/` | Desktop notifications | `beeep` |
-| `claude-obsidian.exe` | `cmd/obsidian/` | Session logging | stdlib only |
+| `claude-obsidian.exe` | `cmd/obsidian/` | Session logging | stdlib + `internal/settings` |
 
 Both binaries have `defer recover()` in `main()` — they must never block Claude Code.
 
-### Hook data flow
+### Hook data flow (plugin mode)
 
 ```
 Claude Code event
-  -> C:\Users\<user>\.claude\hooks\claude-obsidian.exe log-prompt
+  -> ${CLAUDE_PLUGIN_ROOT}/bin/claude-obsidian.exe log-prompt
     -> stdin: JSON { session_id, cwd, prompt }
     -> reads/writes: %TEMP%\claude_session_<id>.txt (session mapping)
-    -> writes: %CLAUDE_VAULT%\<project>\<date>_<time>.md (Obsidian note)
+    -> writes: <vault>/<project>/<date>_<time>.md (Obsidian note)
 
-  -> C:\Users\<user>\.claude\hooks\claude-notify.exe --message "..."
+  -> ${CLAUDE_PLUGIN_ROOT}/bin/claude-notify.exe --message "..."
     -> shows Windows toast notification
 ```
+
+### Configuration
+
+Settings are read from `.claude/claude-hooks.local.md` (YAML frontmatter):
+
+```yaml
+---
+vault_path: "C:\\Obsidian\\MyVault\\Claude"
+skip_when_focused: true
+git_auto_push: false
+---
+```
+
+Search order (highest priority first):
+1. `CLAUDE_VAULT` env var (backward compat)
+2. `$CLAUDE_PROJECT_DIR/.claude/claude-hooks.local.md` (project-level)
+3. `~/.claude/claude-hooks.local.md` (user-global)
+4. `~/.claude/hooks/config.json` (legacy config)
 
 ### Stdin JSON shapes
 
@@ -72,22 +96,26 @@ Claude Code event
 
 ```powershell
 cd go-hooks
-go build -ldflags="-s -w" -o bin/claude-notify.exe ./cmd/notify
-go build -ldflags="-s -w" -o bin/claude-obsidian.exe ./cmd/obsidian
+go build -ldflags="-s -w" -o ../bin/claude-notify.exe ./cmd/notify
+go build -ldflags="-s -w" -o ../bin/claude-obsidian.exe ./cmd/obsidian
 ```
 
-After rebuilding, copy to `~/.claude/hooks/` or re-run `install.ps1`.
+After rebuilding, the binaries in `bin/` are ready for the plugin. No copy step needed.
 
 ## Tests
 
 ```powershell
 cd go-hooks
-go test ./internal/obsidian/ -v
+go test ./... -v
 ```
 
-12 tests covering formatting, frontmatter, truncation, tag stripping, and daily index generation.
+Tests cover: settings parser, obsidian formatting, frontmatter, truncation, tag stripping, and daily index generation.
 
-## Install
+## Install (Plugin)
+
+Install as a Claude Code plugin from the marketplace or a custom registry. Then run `/setup-obsidian-hooks` for first-time configuration.
+
+## Install (Legacy)
 
 ```powershell
 .\install.ps1
@@ -97,7 +125,7 @@ Copies pre-built binaries from `go-hooks/bin/` to `~/.claude/hooks/`, installs s
 
 ## Verify
 
-1. Both binaries exist in `~/.claude/hooks/`
-2. `settings.json` hooks point to `claude-notify.exe` and `claude-obsidian.exe`
-3. `claude-notify.exe --message "Test"` — toast appears
-4. Send a prompt in Claude Code — check `%CLAUDE_VAULT%\<project>\` for session file
+1. Plugin: `.claude-plugin/plugin.json` exists, `hooks/hooks.json` uses `${CLAUDE_PLUGIN_ROOT}` paths
+2. Binaries exist in `bin/` at repo root
+3. `bin/claude-notify.exe --message "Test"` — toast appears
+4. Send a prompt in Claude Code — check vault for session file
