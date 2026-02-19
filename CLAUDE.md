@@ -16,6 +16,9 @@ Windows hooks for Claude Code that log every session to Obsidian and show deskto
   - `internal/session/` — session-to-file mapping via temp files (5-line format: path, promptNum, branch, startHash, cwd)
   - `internal/transcript/` — JSONL transcript parsing for tool counts, token usage, cost estimation
   - `internal/gitctx/` — git context capture (branch, hash, commits since)
+  - `internal/config/` — config loader for `~/.claude/hooks/config.json`
+  - `internal/focus/` — Windows focus detection (suppresses notifications when terminal is focused)
+  - `internal/gitsync/` — vault git auto-commit/push after each response
   - `bin/` — pre-built binaries (committed, no Go required to install)
 - `hooks/` — legacy PowerShell scripts (kept as reference, not used by installer)
 - `skills/` — Claude Code skills
@@ -35,8 +38,8 @@ Two independent Go binaries with zero shared code:
 
 | Binary | Source | Purpose | Deps |
 |--------|--------|---------|------|
-| `claude-notify.exe` | `cmd/notify/` | Desktop notifications | `beeep` |
-| `claude-obsidian.exe` | `cmd/obsidian/` | Session logging + stats + git | stdlib only |
+| `claude-notify.exe` | `cmd/notify/` | Desktop notifications (skip when focused) | `beeep`, `x/sys/windows`, `config`, `focus` |
+| `claude-obsidian.exe` | `cmd/obsidian/` | Session logging + stats + git + vault sync | `config`, `gitsync`, `gitctx`, `obsidian`, `session`, `transcript` |
 
 Both binaries have `defer recover()` in `main()` — they must never block Claude Code.
 
@@ -58,8 +61,15 @@ Claude Code event
     -> rebuilds daily index with tool count and cost
     -> rebuilds weekly/monthly stats reports if stale (at most once/day)
 
+  -> C:\Users\<user>\.claude\hooks\claude-obsidian.exe log-response (cont.)
+    -> git sync: if git_auto_push enabled, commits and pushes vault changes
+       -> acquires .git/claude-sync.lock (stale after 5min)
+       -> git add -A && git commit && git push (30s timeout, best-effort)
+
   -> C:\Users\<user>\.claude\hooks\claude-notify.exe --message "..."
-    -> shows Windows toast notification
+    -> checks if terminal is focused (walks process tree via Win32 API)
+    -> if skip_when_focused=true and terminal is foreground: skip
+    -> otherwise: shows Windows toast notification
 ```
 
 ### Stdin JSON shapes
@@ -116,6 +126,24 @@ After each `log-response`, weekly and monthly stats reports are rebuilt if stale
 
 Both have `auto_generated: true` in frontmatter and a note pointing to `/weekly` and `/monthly` skills for narrative versions. `ScanSessions` walks all project subdirs and parses frontmatter from session files within the date range.
 
+### Config file
+
+`~/.claude/hooks/config.json` controls runtime behavior:
+
+```json
+{
+  "skip_when_focused": true,
+  "git_auto_push": false
+}
+```
+
+| Field | Default | Effect |
+|-------|---------|--------|
+| `skip_when_focused` | `true` | Suppress toast notifications when terminal window is focused |
+| `git_auto_push` | `false` | Auto-commit and push vault changes after each `log-response` |
+
+Config is loaded by `internal/config.Load()` — returns defaults on missing/invalid file.
+
 ### Key design constraints
 
 - Hooks **must never block Claude Code** — both binaries use `defer recover()` and exit silently on errors
@@ -128,6 +156,8 @@ Both have `auto_generated: true` in frontmatter and a note pointing to `/weekly`
 - Model-aware pricing (Opus $5/$25, Sonnet $3/$15, Haiku $1/$5) with cache token accounting (reads at 0.1x, writes at 1.25x input rate). Model detected from transcript `message.model` field; defaults to Sonnet if unknown
 - `BuildFrontmatter` accepts a `FrontmatterData` struct; `UpdateFrontmatterStats` patches existing frontmatter in-place
 - `RebuildWeeklyStatsIfStale` / `RebuildMonthlyStatsIfStale` — auto-generate stats reports at most once per day; checks file mtime to skip if already rebuilt today
+- `gitsync.SyncIfEnabled` uses a file lock (`.git/claude-sync.lock`, stale after 5min) and 30s timeout for all git operations
+- `focus.TerminalIsFocused` walks the process tree via Win32 `CreateToolhelp32Snapshot` to check if the foreground window belongs to an ancestor process
 
 ## Build
 
@@ -146,10 +176,13 @@ cd go-hooks
 go test ./... -v
 ```
 
-47 tests across 3 packages:
+73 tests across 6 packages:
 - `internal/obsidian/` — 33 tests: formatting, frontmatter (with stats/branch/files/model/cache), truncation, tag stripping, daily index (with tools/cost), stats line, commits entry, frontmatter update, session scanning, report building (weekly/monthly), staleness checks, duration parsing, week start calculation
 - `internal/transcript/` — 10 tests: tool counts, token sums, file dedup, cost calc (Sonnet default), model detection, Opus pricing, cache cost reduction, empty file, malformed lines, sidechain skip
 - `internal/gitctx/` — 4 tests: not-a-repo, valid repo, commits-since, empty hash
+- `internal/gitsync/` — tests: sync enabled/disabled, lock acquisition, stale lock cleanup, no-op on clean tree, git root detection
+- `internal/config/` — tests: defaults, load from file, missing file, invalid JSON
+- `internal/focus/` — tests: ancestor walking, process map, cycle detection
 
 ## Install
 
@@ -157,7 +190,7 @@ go test ./... -v
 .\install.ps1
 ```
 
-Copies pre-built binaries from `go-hooks/bin/` to `~/.claude/hooks/`, installs all skills, CSS snippet, sets `CLAUDE_VAULT` env var, and merges hooks config into `~/.claude/settings.json`.
+Copies pre-built binaries from `go-hooks/bin/` to `~/.claude/hooks/`, installs all skills, CSS snippet, sets `CLAUDE_VAULT` env var, merges hooks config into `~/.claude/settings.json`, and creates/updates `~/.claude/hooks/config.json` (prompts for `skip_when_focused` and `git_auto_push`).
 
 ## Verify
 
