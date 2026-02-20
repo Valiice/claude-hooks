@@ -12,7 +12,7 @@ import (
 )
 
 const lockTimeout = 5 * time.Minute
-const syncTimeout = 30 * time.Second
+const syncTimeout = 60 * time.Second
 
 // SyncIfEnabled commits and pushes vault changes if git_auto_push is enabled in config.
 // All errors are swallowed silently (matching project convention).
@@ -51,8 +51,14 @@ func SyncIfEnabled(vaultDir string) {
 		return
 	}
 
-	// Push (best-effort)
-	_ = gitCmd(ctx, gitRoot, "push")
+	// Push — if rejected (remote ahead), pull --rebase and retry
+	if err := gitCmd(ctx, gitRoot, "push"); err != nil {
+		if pullErr := gitCmd(ctx, gitRoot, "pull", "--rebase"); pullErr == nil {
+			_ = gitCmd(ctx, gitRoot, "push") // best-effort retry
+		} else {
+			_ = gitCmd(ctx, gitRoot, "rebase", "--abort") // clean up failed rebase
+		}
+	}
 }
 
 // findGitRoot walks up from dir looking for a .git directory.

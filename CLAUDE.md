@@ -64,7 +64,9 @@ Claude Code event
   -> C:\Users\<user>\.claude\hooks\claude-obsidian.exe log-response (cont.)
     -> git sync: if git_auto_push enabled, commits and pushes vault changes
        -> acquires .git/claude-sync.lock (stale after 5min)
-       -> git add -A && git commit && git push (30s timeout, best-effort)
+       -> git add -A && git commit && git push (60s timeout, best-effort)
+       -> if push rejected (remote ahead): git pull --rebase, then retry push
+       -> if pull fails (conflict): git rebase --abort (restores clean state)
 
   -> C:\Users\<user>\.claude\hooks\claude-notify.exe --message "..."
     -> checks if terminal is focused (walks process tree via Win32 API)
@@ -156,7 +158,7 @@ Config is loaded by `internal/config.Load()` — returns defaults on missing/inv
 - Model-aware pricing (Opus $5/$25, Sonnet $3/$15, Haiku $1/$5) with cache token accounting (reads at 0.1x, writes at 1.25x input rate). Model detected from transcript `message.model` field; defaults to Sonnet if unknown
 - `BuildFrontmatter` accepts a `FrontmatterData` struct; `UpdateFrontmatterStats` patches existing frontmatter in-place
 - `RebuildWeeklyStatsIfStale` / `RebuildMonthlyStatsIfStale` — auto-generate stats reports at most once per day; checks file mtime to skip if already rebuilt today
-- `gitsync.SyncIfEnabled` uses a file lock (`.git/claude-sync.lock`, stale after 5min) and 30s timeout for all git operations
+- `gitsync.SyncIfEnabled` uses a file lock (`.git/claude-sync.lock`, stale after 5min) and 60s timeout. If `git push` is rejected (remote ahead), it runs `git pull --rebase` then retries; on pull conflict, runs `git rebase --abort` to restore clean state
 - `focus.TerminalIsFocused` walks the process tree via Win32 `CreateToolhelp32Snapshot` to check if the foreground window belongs to an ancestor process
 
 ## Build
@@ -176,11 +178,11 @@ cd go-hooks
 go test ./... -v
 ```
 
-73 tests across 6 packages:
+72 tests across 6 packages:
 - `internal/obsidian/` — 33 tests: formatting, frontmatter (with stats/branch/files/model/cache), truncation, tag stripping, daily index (with tools/cost), stats line, commits entry, frontmatter update, session scanning, report building (weekly/monthly), staleness checks, duration parsing, week start calculation
 - `internal/transcript/` — 10 tests: tool counts, token sums, file dedup, cost calc (Sonnet default), model detection, Opus pricing, cache cost reduction, empty file, malformed lines, sidechain skip
 - `internal/gitctx/` — 4 tests: not-a-repo, valid repo, commits-since, empty hash
-- `internal/gitsync/` — tests: sync enabled/disabled, lock acquisition, stale lock cleanup, no-op on clean tree, git root detection
+- `internal/gitsync/` — tests: sync enabled/disabled, lock acquisition, stale lock cleanup, no-op on clean tree, git root detection, push-rejected-then-recovered, pull-conflict-aborts-cleanly
 - `internal/config/` — tests: defaults, load from file, missing file, invalid JSON
 - `internal/focus/` — tests: ancestor walking, process map, cycle detection
 
