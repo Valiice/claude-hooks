@@ -68,6 +68,23 @@ tags: #claude-session #tag1 #tag2 ...
 |-------|-------|
 | **{project}** ({N} sessions) | One-line summary |
 
+## By the Numbers
+
+| Metric | Value |
+|--------|-------|
+| Total Cost | ~${total} |
+| Tokens | {in} in / {out} out |
+| Tool Calls | {count} |
+| Top Tools | {tool}({count}), {tool}({count}), ... |
+
+(Only include this section if sessions have stats in frontmatter)
+
+## Bookmarked Sessions
+
+- [[{path}|{time}]] — {project}: {brief context}
+
+(Only include this section if any sessions have `bookmarked: true`)
+
 ---
 
 ## {Project Name}
@@ -104,3 +121,17 @@ tags: #claude-session #tag1 #tag2 ...
 - **Keep it scannable** — tables for comparisons, bold for session titles with timestamps, short paragraphs.
 - If a session is trivial (1 prompt, quick answer), it can be a single line rather than a full paragraph.
 - The synopsis is a **working document for the user**, not a report for someone else. Be direct.
+- **Use session stats when available** — if sessions have `tools`, `tokens_in`, `tokens_out`, `estimated_cost` in frontmatter, include a "By the Numbers" section after the Overview table:
+  ```
+  ## By the Numbers
+
+  | Metric | Value |
+  |--------|-------|
+  | Total Cost | ~${total} |
+  | Tokens | {in} in / {out} out |
+  | Tool Calls | {count} |
+  | Top Tools | {tool}({count}), {tool}({count}), ... |
+  ```
+- **Reference git commits** — if sessions have `branch` or `commits` in frontmatter, mention branches and key commits in project narratives
+- **Highlight bookmarked sessions** — if any sessions have `bookmarked: true`, add a "Bookmarked Sessions" section listing them with brief context
+- If these frontmatter fields aren't present (older sessions), gracefully skip these sections — never error on missing data
