@@ -51,12 +51,12 @@ func SyncIfEnabled(vaultDir string) {
 		return
 	}
 
-	// Push — if rejected (remote ahead), pull --rebase and retry
+	// Push — if rejected (remote ahead), merge with -X theirs and retry
 	if err := gitCmd(ctx, gitRoot, "push"); err != nil {
-		if pullErr := gitCmd(ctx, gitRoot, "pull", "--rebase"); pullErr == nil {
+		if pullErr := gitCmd(ctx, gitRoot, "pull", "--no-rebase", "--no-edit", "-X", "theirs"); pullErr == nil {
 			_ = gitCmd(ctx, gitRoot, "push") // best-effort retry
 		} else {
-			_ = gitCmd(ctx, gitRoot, "rebase", "--abort") // clean up failed rebase
+			_ = gitCmd(ctx, gitRoot, "merge", "--abort") // clean up failed merge
 		}
 	}
 }

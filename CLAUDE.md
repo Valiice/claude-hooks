@@ -65,8 +65,8 @@ Claude Code event
     -> git sync: if git_auto_push enabled, commits and pushes vault changes
        -> acquires .git/claude-sync.lock (stale after 5min)
        -> git add -A && git commit && git push (60s timeout, best-effort)
-       -> if push rejected (remote ahead): git pull --rebase, then retry push
-       -> if pull fails (conflict): git rebase --abort (restores clean state)
+       -> if push rejected (remote ahead): git pull --no-rebase -X theirs, then retry push
+       -> if pull fails: git merge --abort (restores clean state)
 
   -> C:\Users\<user>\.claude\hooks\claude-notify.exe --message "..."
     -> checks if terminal is focused (walks process tree via Win32 API)
@@ -158,7 +158,7 @@ Config is loaded by `internal/config.Load()` — returns defaults on missing/inv
 - Model-aware pricing (Opus $5/$25, Sonnet $3/$15, Haiku $1/$5) with cache token accounting (reads at 0.1x, writes at 1.25x input rate). Model detected from transcript `message.model` field; defaults to Sonnet if unknown
 - `BuildFrontmatter` accepts a `FrontmatterData` struct; `UpdateFrontmatterStats` patches existing frontmatter in-place
 - `RebuildWeeklyStatsIfStale` / `RebuildMonthlyStatsIfStale` — auto-generate stats reports at most once per day; checks file mtime to skip if already rebuilt today
-- `gitsync.SyncIfEnabled` uses a file lock (`.git/claude-sync.lock`, stale after 5min) and 60s timeout. If `git push` is rejected (remote ahead), it runs `git pull --rebase` then retries; on pull conflict, runs `git rebase --abort` to restore clean state
+- `gitsync.SyncIfEnabled` uses a file lock (`.git/claude-sync.lock`, stale after 5min) and 60s timeout. If `git push` is rejected (remote ahead), it runs `git pull --no-rebase --no-edit -X theirs` (merge, auto-resolve conflicts favoring remote) then retries push; on pull failure, runs `git merge --abort` to restore clean state
 - `focus.TerminalIsFocused` walks the process tree via Win32 `CreateToolhelp32Snapshot` to check if the foreground window belongs to an ancestor process
 
 ## Build
