@@ -204,6 +204,118 @@ func TestAcquireLock_StaleRemoval(t *testing.T) {
 	releaseLock(lockPath)
 }
 
+// cloneRepo clones bare into path and configures git user identity.
+func cloneRepo(t *testing.T, bare, path string) {
+	t.Helper()
+	run(t, "", "git", "clone", bare, path)
+	run(t, path, "git", "config", "user.email", "test@test.com")
+	run(t, path, "git", "config", "user.name", "Test")
+}
+
+func TestSyncIfEnabled_PushRejectedThenRecovered(t *testing.T) {
+	setConfigHome(t, `{"git_auto_push": true}`)
+	bare, clone1 := initBareAndClone(t)
+
+	// Device A: push a new commit directly (simulating another device already pushed)
+	os.WriteFile(filepath.Join(clone1, "device_a.md"), []byte("device A"), 0644)
+	run(t, clone1, "git", "add", "-A")
+	run(t, clone1, "git", "commit", "-m", "device A commit")
+	run(t, clone1, "git", "push")
+
+	// Device B: a fresh clone that hasn't pulled device A's commit
+	clone2 := filepath.Join(t.TempDir(), "device_b")
+	cloneRepo(t, bare, clone2)
+
+	// Simulate device B getting behind: device A pushes another commit after clone2 was cloned
+	os.WriteFile(filepath.Join(clone1, "device_a2.md"), []byte("device A again"), 0644)
+	run(t, clone1, "git", "add", "-A")
+	run(t, clone1, "git", "commit", "-m", "device A second commit")
+	run(t, clone1, "git", "push")
+
+	// Device B writes its own file and calls SyncIfEnabled (push will be rejected, then recovered)
+	os.WriteFile(filepath.Join(clone2, "device_b.md"), []byte("device B"), 0644)
+	SyncIfEnabled(clone2)
+
+	// Verify device B's commit reached bare
+	cmd := exec.Command("git", "-C", bare, "log", "--oneline")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git log on bare failed: %v\n%s", err, out)
+	}
+	log := string(out)
+	if !contains(log, "claude: sync session") {
+		t.Errorf("expected device B's sync commit in bare, got:\n%s", log)
+	}
+	// Both device A commits should also be present
+	if !contains(log, "device A second commit") {
+		t.Errorf("expected device A's commit in bare, got:\n%s", log)
+	}
+}
+
+func TestSyncIfEnabled_PullConflict_MergesWithTheirs(t *testing.T) {
+	setConfigHome(t, `{"git_auto_push": true}`)
+	bare, clone1 := initBareAndClone(t)
+
+	// Both clones will modify the same line of the same file — conflict resolved by -X theirs
+	sharedFile := "shared.md"
+	// Write initial version of the shared file from clone1
+	os.WriteFile(filepath.Join(clone1, sharedFile), []byte("original line\n"), 0644)
+	run(t, clone1, "git", "add", "-A")
+	run(t, clone1, "git", "commit", "-m", "add shared file")
+	run(t, clone1, "git", "push")
+
+	// Clone2 clones after the shared file exists
+	clone2 := filepath.Join(t.TempDir(), "device_b")
+	cloneRepo(t, bare, clone2)
+
+	// Device A (clone1) modifies the shared file and pushes
+	os.WriteFile(filepath.Join(clone1, sharedFile), []byte("device A line\n"), 0644)
+	run(t, clone1, "git", "add", "-A")
+	run(t, clone1, "git", "commit", "-m", "device A changes shared file")
+	run(t, clone1, "git", "push")
+
+	// Device B (clone2) modifies the same line AND adds a unique file
+	os.WriteFile(filepath.Join(clone2, sharedFile), []byte("device B line\n"), 0644)
+	os.WriteFile(filepath.Join(clone2, "device_b_only.md"), []byte("unique to B\n"), 0644)
+
+	// SyncIfEnabled should merge with -X theirs (remote wins conflict) and push
+	SyncIfEnabled(clone2)
+
+	// Verify device B's commit reached bare (push succeeded after merge)
+	cmd := exec.Command("git", "-C", bare, "log", "--oneline")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git log on bare failed: %v\n%s", err, out)
+	}
+	if !contains(string(out), "claude: sync session") {
+		t.Errorf("expected device B's sync commit in bare, got:\n%s", string(out))
+	}
+
+	// Verify shared.md has device A's content (remote wins conflict via -X theirs)
+	content, err := os.ReadFile(filepath.Join(clone2, sharedFile))
+	if err != nil {
+		t.Fatalf("failed to read shared.md: %v", err)
+	}
+	if !contains(string(content), "device A line") {
+		t.Errorf("expected shared.md to contain 'device A line' (remote wins), got: %q", string(content))
+	}
+
+	// Verify device B's unique file survived the merge
+	if _, err := os.Stat(filepath.Join(clone2, "device_b_only.md")); err != nil {
+		t.Error("expected device_b_only.md to survive the merge")
+	}
+
+	// Verify no rebase or merge in progress (clean state)
+	rebaseHead := filepath.Join(clone2, ".git", "REBASE_HEAD")
+	if _, err := os.Stat(rebaseHead); err == nil {
+		t.Error("expected no REBASE_HEAD after SyncIfEnabled")
+	}
+	mergeHead := filepath.Join(clone2, ".git", "MERGE_HEAD")
+	if _, err := os.Stat(mergeHead); err == nil {
+		t.Error("expected no MERGE_HEAD after SyncIfEnabled")
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && searchString(s, substr)
 }

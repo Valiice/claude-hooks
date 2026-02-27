@@ -92,3 +92,35 @@ func TestRebuildDailyIndex_Format(t *testing.T) {
 		t.Errorf("Daily index format mismatch\ngot:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+// TestRebuildDailyIndex_WithToolsAndCost verifies enhanced format with tools and cost.
+func TestRebuildDailyIndex_WithToolsAndCost(t *testing.T) {
+	tmpDir := t.TempDir()
+	date := "2026-02-12"
+
+	dir := filepath.Join(tmpDir, "Coding")
+	os.MkdirAll(dir, 0755)
+	sessionContent := "---\ndate: " + date + "\nsession_id: test-id2\nproject: Coding\nstart_time: 17:42\nduration: 10min\ntools:\n  Edit: 12\n  Read: 15\n  Bash: 8\ntokens_in: 45230\ntokens_out: 12840\nestimated_cost: \"$0.23\"\ntags:\n  - claude-session\n---\n\n# Claude Session\n\n---\n\n> [!user]+ #1 - You (17:42:00)\n> test\n\n---\n"
+	os.WriteFile(filepath.Join(dir, date+"_1742.md"), []byte(sessionContent), 0644)
+
+	mapFile := filepath.Join(os.TempDir(), "claude_session_test-id2.txt")
+	os.WriteFile(mapFile, []byte(filepath.Join(dir, date+"_1742.md")+"\n4"), 0644)
+	defer os.Remove(mapFile)
+
+	err := RebuildDailyIndex(tmpDir, date)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(tmpDir, date+".md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(content)
+
+	// Should include tools and cost in the entry
+	want := "- [[Coding/2026-02-12_1742|17:42]] (10min, 4 prompts, 35 tools, ~$0.23)\n"
+	if !strings.Contains(got, want) {
+		t.Errorf("Enhanced daily index format mismatch\ngot:\n%s\nwant line:\n%s", got, want)
+	}
+}

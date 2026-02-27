@@ -11,10 +11,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/valentinclaes/claude-hooks/internal/gitctx"
 	"github.com/valentinclaes/claude-hooks/internal/gitsync"
 	"github.com/valentinclaes/claude-hooks/internal/hookdata"
 	"github.com/valentinclaes/claude-hooks/internal/obsidian"
 	"github.com/valentinclaes/claude-hooks/internal/session"
+	"github.com/valentinclaes/claude-hooks/internal/transcript"
 )
 
 var startTimeRe = regexp.MustCompile(`(?m)^start_time:\s*(\d{2}:\d{2})`)
@@ -82,7 +84,7 @@ func runLogPrompt() {
 	if sd != nil {
 		filePath = sd.FilePath
 		promptNum = sd.PromptNum + 1
-		session.Write(input.SessionID, filePath, promptNum)
+		session.Write(input.SessionID, filePath, promptNum, sd.Branch, sd.StartHash, sd.Cwd)
 	} else {
 		// New session
 		promptNum = 1
@@ -104,13 +106,22 @@ func runLogPrompt() {
 			counter++
 		}
 
-		session.Write(input.SessionID, filePath, 1)
+		// Capture git context
+		gc := gitctx.Capture(input.Cwd)
+		session.Write(input.SessionID, filePath, 1, gc.Branch, gc.Hash, input.Cwd)
 
 		// Check for parent session
 		resumedFrom := obsidian.FindParentSession(input.SessionID, claudeProjects, vaultDir)
 
 		startTime := now.Format("15:04")
-		frontmatter := obsidian.BuildFrontmatter(date, input.SessionID, project, startTime, resumedFrom)
+		frontmatter := obsidian.BuildFrontmatter(obsidian.FrontmatterData{
+			Date:        date,
+			SessionID:   input.SessionID,
+			Project:     project,
+			StartTime:   startTime,
+			ResumedFrom: resumedFrom,
+			Branch:      gc.Branch,
+		})
 		os.WriteFile(filePath, []byte(frontmatter), 0644)
 	}
 
@@ -148,9 +159,24 @@ func runLogResponse() {
 	// Read transcript and find last assistant text + planContent
 	responseText, planText := readTranscript(input.TranscriptPath)
 
+	// Parse transcript for stats
+	stats, _ := transcript.ParseTranscript(input.TranscriptPath)
+
 	now := time.Now()
 	timeStr := now.Format("15:04:05")
 	var output strings.Builder
+
+	// Add stats summary line if we have stats
+	if stats != nil && stats.TotalToolCalls() > 0 {
+		estCost := ""
+		if stats.EstimatedCost > 0 {
+			estCost = fmt.Sprintf("$%.2f", stats.EstimatedCost)
+		}
+		statsLine := obsidian.FormatStatsLine(stats.ToolCounts, stats.TokensIn, stats.TokensOut, estCost)
+		if statsLine != "" {
+			output.WriteString("\n" + statsLine)
+		}
+	}
 
 	// Log plan if found
 	if planText != "" {
@@ -162,6 +188,25 @@ func runLogResponse() {
 	if responseText != "" {
 		responseText = obsidian.Truncate(responseText, 3000)
 		output.WriteString(obsidian.FormatResponseEntry(timeStr, responseText))
+	}
+
+	// Detect git commits since last check
+	var commitLines []string
+	if sd.StartHash != "" && sd.Cwd != "" {
+		commits := gitctx.CommitsSince(sd.Cwd, sd.StartHash)
+		for _, c := range commits {
+			commitLines = append(commitLines, c.Hash+" "+c.Message)
+		}
+		if len(commits) > 0 {
+			// Advance start hash to current HEAD so next response only sees new commits
+			newHead := gitctx.Capture(sd.Cwd)
+			if newHead.Hash != "" {
+				session.Write(input.SessionID, sd.FilePath, sd.PromptNum, sd.Branch, newHead.Hash, sd.Cwd)
+			}
+		}
+	}
+	if len(commitLines) > 0 {
+		output.WriteString(obsidian.FormatCommitsEntry(now.Format("15:04"), commitLines))
 	}
 
 	if output.Len() > 0 {
@@ -176,11 +221,31 @@ func runLogResponse() {
 	// Update duration in frontmatter
 	updateDuration(filePath, now)
 
+	// Update frontmatter with stats
+	if stats != nil && stats.TotalToolCalls() > 0 {
+		estCost := ""
+		if stats.EstimatedCost > 0 {
+			estCost = fmt.Sprintf("$%.2f", stats.EstimatedCost)
+		}
+		content, err := os.ReadFile(filePath)
+		if err == nil {
+			updated := obsidian.UpdateFrontmatterStats(
+				string(content),
+				stats.ToolCounts, stats.TokensIn, stats.TokensOut,
+				stats.CacheRead, stats.CacheCreation,
+				estCost, stats.FilesTouched, commitLines, sd.Branch, stats.Model,
+			)
+			os.WriteFile(filePath, []byte(updated), 0644)
+		}
+	}
+
 	// Rebuild daily index
 	vaultDir := obsidian.VaultDir()
 	if vaultDir != "" {
 		date := now.Format("2006-01-02")
 		obsidian.RebuildDailyIndex(vaultDir, date)
+		obsidian.RebuildWeeklyStatsIfStale(vaultDir, now)
+		obsidian.RebuildMonthlyStatsIfStale(vaultDir, now)
 
 		// Git sync (if enabled via config.json)
 		gitsync.SyncIfEnabled(vaultDir)
